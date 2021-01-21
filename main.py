@@ -34,10 +34,9 @@ parser.add_argument('--model', type=str, default='model')
 parser.add_argument('--dataset', type=str, choices=['cifar10', 'cifar100', 'svhn', 'tiny_imagenet'])
 parser.add_argument('--resume', '-r', type=str, default=None, help='resume from checkpoint')
 parser.add_argument('--result_dir', type=str, default='checkpoint')
-parser.add_argument('--tb', type=str, default='logs')
 args = parser.parse_args()
+
 device = torch.device("cuda:%d" % args.gpu[0] if torch.cuda.is_available() else "cpu")
-iters = 0
 best_acc_clean = 0
 best_acc_adv = 0
 
@@ -62,8 +61,7 @@ def main():
         
     if args.resume is not None:
         print('==> Resuming from checkpoint..')
-        checkpoint = torch.load(args.resume)
-        net.load_state_dict(checkpoint['net'])
+        net.load_state_dict(torch.load(args.resume))
 
     optimizer = optim.SGD(net.parameters(), lr=0.1, momentum=args.momentum, weight_decay=args.weight_decay)
     criterion = CustomLossFunction()
@@ -72,12 +70,13 @@ def main():
     print('='*50)
     print('  -->\tepsilon: {}\n'
           '  -->\talpha: {}\n'
+          '  -->\tadjust trigger: {}\n'
           '  -->\tdataset: {}\n'
           '  -->\tGPU number: {}\n'
           '  -->\tEpochs (start/end): ({}/{})\n'
           '  -->\tBatch size: {}\n'
           '  -->\tAdv iterations: {}\n'
-          '  -->\tPGD repeat (eval): {}'.format(args.epsilon, args.alpha, args.dataset, args.gpu, args.start_epoch, args.end_epoch, args.batch_size, args.m, args.pgd_repeat))
+          '  -->\tPGD repeat (eval): {}'.format(args.epsilon, args.alpha, scheduler, args.dataset, args.gpu, args.start_epoch, args.end_epoch, args.batch_size, args.m, args.pgd_repeat))
     print('='*50)
     
     for epoch in range(args.start_epoch, args.end_epoch):
@@ -122,7 +121,6 @@ def get_dataset(transform_train, transform_test):
 def train(epoch, trainloader, net, criterion, optimizer, random_start=True):
     print('\nEpoch: %d' % epoch)
     net.train()
-    global iters
     
     losses = AverageMeter()
     top1 = AverageMeter()
@@ -179,7 +177,6 @@ def train(epoch, trainloader, net, criterion, optimizer, random_start=True):
             print('  Loss: {loss.val: .4f} ({loss.avg: .4f})'
                   '  Acc (top1): {top1.val: .4f} ({top1.avg: .4f})'
                   '  Acc (top5): {top5.val: .4f} ({top5.avg: .4f})'.format(loss=losses, top1=top1, top5=top5))
-            #tb.add_scalars('Acc_train', {'top1': top1.avg, 'top5': top5.avg}, iters)
     
     print('Saving..')
     result_dir = args.result_dir
@@ -207,7 +204,6 @@ def validation_normal(epoch, testloader, net, criterion):
             
     print('  Top1 Acc (clean): {top1.val: .4f} ({top1.avg: .4f})'
           '  Top5 Acc (clean): {top5.val: .4f} ({top5.avg: .4f})'.format(top1=top1, top5=top5))
-    #tb.add_scalars('Acc_clean', {'top1': top1.avg, 'top5': top5.avg}, epoch)
     return losses.avg, top1.avg
 
 def validation_pgd(epoch, testloader, net, criterion, n_repeat=10):
@@ -231,7 +227,6 @@ def validation_pgd(epoch, testloader, net, criterion, n_repeat=10):
             grads = torch.autograd.grad(ascend_loss, img1, grad_outputs=None, only_inputs=True)[0]
             pert = args.alpha * torch.sign(grads)
                 
-            # adversarial examples: linf norm
             img += pert.data
             img = torch.max(org_img - args.epsilon, img)
             img = torch.min(org_img + args.epsilon, img)
@@ -248,7 +243,6 @@ def validation_pgd(epoch, testloader, net, criterion, n_repeat=10):
         
     print('  Top1 Acc (AT): {top1.val: .4f} ({top1.avg: .4f})'
           '  Top5 Acc (AT): {top5.val: .4f} ({top5.avg: .4f})'.format(top1=top1, top5=top5))
-    #tb.add_scalars('Acc_adv', {'top1': top1.avg, 'top5': top5.avg}, epoch)
     return losses.avg, top1.avg
         
 def adjust_learning_rate(optimizer, scheduler, epoch):
