@@ -67,6 +67,7 @@ def main():
 
     optimizer = optim.SGD(net.parameters(), lr=0.1, momentum=args.momentum, weight_decay=args.weight_decay)
     criterion = CustomLossFunction()
+    scheduler = [int(args.end_epoch*0.5), int(args.end_epoch*0.75)]
     
     print('='*50)
     print('  -->\tepsilon: {}\n'
@@ -80,7 +81,7 @@ def main():
     print('='*50)
     
     for epoch in range(args.start_epoch, args.end_epoch):
-        adjust_learning_rate(optimizer, epoch)
+        adjust_learning_rate(optimizer, scheduler, epoch)
         train_loss, train_acc = train(epoch, trainloader, net, criterion, optimizer)
         test_clean_loss, test_clean_acc = validation_normal(epoch, testloader, net, criterion)
         test_adv_loss, test_adv_acc = validation_pgd(epoch, testloader, net, criterion, n_repeat=args.pgd_repeat)
@@ -250,15 +251,11 @@ def validation_pgd(epoch, testloader, net, criterion, n_repeat=10):
     #tb.add_scalars('Acc_adv', {'top1': top1.avg, 'top5': top5.avg}, epoch)
     return losses.avg, top1.avg
         
-def adjust_learning_rate(optimizer, epoch):
-    if epoch < 12:
-        lr = 0.1
-    elif epoch >= 12 and epoch < 22:
-        lr = 0.01
-    elif epoch >= 22: 
-        lr = 0.001
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = lr
+def adjust_learning_rate(optimizer, scheduler, epoch):
+    if epoch in scheduler:
+        for param_group in optimizer.param_groups:
+            lr = param_group['lr'] * 0.1
+            param_group['lr'] = lr
         
 if __name__ == '__main__':
     main()
