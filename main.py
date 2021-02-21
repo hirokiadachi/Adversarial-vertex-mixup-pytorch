@@ -18,8 +18,8 @@ from models.wideresnet import *
 parser = argparse.ArgumentParser(description='PyTorch Adversarial Vertex Mixup')
 parser.add_argument('--momentum', default=0.9, type=float)
 parser.add_argument('--weight_decay', default=2e-4, type=float)
-parser.add_argument('--epsilon', default=8.0/255, type=float)
-parser.add_argument('--alpha', default=2.0/255, type=float)
+parser.add_argument('--epsilon', default=8.0, type=float)
+parser.add_argument('--alpha', default=2.0, type=float)
 parser.add_argument('--gamma', default=2.0, type=float)
 parser.add_argument('--lambda1', default=0.5, type=float)
 parser.add_argument('--lambda2', default=0.7, type=float)
@@ -114,8 +114,8 @@ def get_dataset(transform_train, transform_test):
     else:
         assert 0, 'Dataset %s is not supported.' % args.dataset
 
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size, shuffle=True, drop_last=True, num_workers=args.workers)
-    testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, drop_last=True, num_workers=args.workers)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size, shuffle=True, num_workers=args.workers)
+    testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers)
     return trainloader, testloader, net, model_type
 
 def train(epoch, trainloader, net, criterion, optimizer, random_start=True):
@@ -125,13 +125,16 @@ def train(epoch, trainloader, net, criterion, optimizer, random_start=True):
     losses = AverageMeter()
     top1 = AverageMeter()
     top5 = AverageMeter()
+    epsilon = args.epsilon / 255
+    alpha = args.alpha / 255
     
     for batch_idx, (img, tgt) in enumerate(trainloader):
         img, tgt = img.to(device), tgt.to(device)
         onehot = torch.eye(10)[tgt].to(device)
         
         if random_start:
-            x = img + torch.FloatTensor(img.shape).uniform_(-args.epsilon, args.epsilon).to(device)
+            noise = torch.FloatTensor(img.shape).uniform_(-args.epsilon, args.epsilon).to(device)
+            x = img + noise
             x = x.clamp(min=0., max=1.)
         else:
             x = img.clone()
@@ -144,11 +147,9 @@ def train(epoch, trainloader, net, criterion, optimizer, random_start=True):
             
             x = x + args.alpha*torch.sign(grads)
             
-            max_x = img + args.epsilon
-            min_x = img - args.epsilon
-            x = torch.max(torch.min(x, max_x), min_x)
+            x = img + torch.clamp(x - img, min=-epsilon, max=epsilon)
             x = x.clamp(min=0., max=1.)
-            
+          
         pert = (x - img) * args.gamma
         x_av = img + pert
         x_av = x_av.clamp(min=0., max=1.)
@@ -164,7 +165,6 @@ def train(epoch, trainloader, net, criterion, optimizer, random_start=True):
         loss.backward()
         optimizer.step()
         
-        iters += 1
         if batch_idx % 100 == 0:
             with torch.no_grad():
                 clean_out = net(img)
